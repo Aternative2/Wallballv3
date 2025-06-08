@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wall Ball Referee - Competition Grade with Ball Detection</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: #0f0f0f;
+            color: #fff;
+            overflow: hidden;
+        }
+        
+        .container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        video {
+            display: none;
+        }
+        
+        canvas {
+            max-width: 100%;
+            max-height: 100%;
+            transform: scaleX(-1);
+        }
+        
+        .stats {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            min-width: 250px;
+        }
+        
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+            font-size: 18px;
+        }
+        
+        .stat-label {
+            color: #888;
+        }
+        
+        .stat-value {
+            font-weight: bold;
+            font-size: 24px;
+        }
+        
+        .valid { color: #4ade80; }
+        .invalid { color: #f87171; }
+        
+        .feedback {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px 40px;
+            border-radius: 50px;
+            font-size: 24px;
+            font-weight: bold;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+        }
+        
+        .feedback.error {
+            background: rgba(248, 113, 113, 0.2);
+            border: 2px solid #f87171;
+            color: #f87171;
+        }
+        
+        .feedback.success {
+            background: rgba(74, 222, 128, 0.2);
+            border: 2px solid #4ade80;
+            color: #4ade80;
+        }
+        
+        .feedback.warning {
+            background: rgba(251, 191, 36, 0.2);
+            border: 2px solid #fbbf24;
+            color: #fbbf24;
+        }
+        
+        .phase-indicator {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px 25px;
+            border-radius: 10px;
+            font-size: 18px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .depth-indicator {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .depth-indicator.show {
+            opacity: 1;
+        }
+        
+        .settings {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .settings label {
+            margin-right: 10px;
+        }
+        
+        select {
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        
+        .ball-info {
+            position: absolute;
+            top: 100px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            font-size: 14px;
+        }
+        
+        .performance-meter {
+            position: absolute;
+            bottom: 100px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            font-size: 12px;
+            width: 200px;
+        }
+        
+        .rep-errors {
+            position: absolute;
+            top: 300px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            font-size: 14px;
+            max-width: 250px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <video id="input-video"></video>
+        <canvas id="output-canvas"></canvas>
+        
+        <div class="stats">
+            <h2 style="margin: 0 0 20px 0; text-align: center;">Wall Ball Referee</h2>
+            <div class="stat-item">
+                <span class="stat-label">Total Reps:</span>
+                <span class="stat-value" id="total-reps">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Valid:</span>
+                <span class="stat-value valid" id="valid-reps">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Invalid:</span>
+                <span class="stat-value invalid" id="invalid-reps">0</span>
+            </div>
+            <div class="stat-item" style="margin-top: 20px; border-top: 1px solid #333; padding-top: 20px;">
+                <span class="stat-label">Current Depth:</span>
+                <span class="stat-value" id="current-depth">--°</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Ball Height:</span>
+                <span class="stat-value" id="ball-height">--m</span>
+            </div>
+        </div>
+        
+        <div class="phase-indicator" id="phase">READY</div>
+        
+        <div class="depth-indicator" id="depth-indicator"></div>
+        
+        <div class="feedback" id="feedback" style="display: none;"></div>
+        
+        <div class="settings">
+            <label>Gender:</label>
+            <select id="gender-select">
+                <option value="male">Male (3.0m)</option>
+                <option value="female">Female (2.7m)</option>
+            </select>
+        </div>
+        
+        <div class="ball-info" id="ball-info">
+            <strong>Ball Tracking</strong><br>
+            Status: <span id="ball-status">Waiting...</span><br>
+            Confidence: <span id="ball-confidence">--</span>
+        </div>
+        
+        <div class="performance-meter">
+            <strong>Performance</strong><br>
+            FPS: <span id="fps">0</span><br>
+            Processing: <span id="processing-time">0ms</span><br>
+            Smoothing: <span id="smoothing-status">Active</span>
+        </div>
+        
+        <div class="rep-errors" id="rep-errors" style="display: none;">
+            <strong>Last Rep Issues:</strong><br>
+            <div id="error-list"></div>
+        </div>
+    </div>
+
+    <script>
+        // Kalman Filter Implementation
+        class KalmanFilter1D {
+            constructor(processNoise = 0.01, measurementNoise = 10) {
+                this.x = 0; // Position
+                this.v = 0; // Velocity
+                this.P = [[1000, 0], [0, 1000]]; // Covariance
+                this.Q = [[processNoise, 0], [0, processNoise]]; // Process noise
+                this.R = measurementNoise; // Measurement noise
+                this.F = [[1, 1], [0, 1]]; // State transition
+                this.H = [1, 0]; // Measurement matrix
+                this.initialized = false;
+            }
+            
+            predict(dt = 1/30) {
+                this.F[0][1] = dt;
+                
+                const newX = this.F[0][0] * this.x + this.F[0][1] * this.v;
+                const newV = this.F[1][0] * this.x + this.F[1][1] * this.v;
+                this.x = newX;
+                this.v = newV;
+                
+                // Update covariance
+                const P00 = this.F[0][0] * this.P[0][0] + this.F[0][1] * this.P[1][0];
+                const P01 = this.F[0][0] * this.P[0][1] + this.F[0][1] * this.P[1][1];
+                const P10 = this.F[1][0] * this.P[0][0] + this.F[1][1] * this.P[1][0];
+                const P11 = this.F[1][0] * this.P[0][1] + this.F[1][1] * this.P[1][1];
+                
+                this.P = [
+                    [P00 * this.F[0][0] + P01 * this.F[0][1] + this.Q[0][0], 
+                     P00 * this.F[1][0] + P01 * this.F[1][1] + this.Q[0][1]],
+                    [P10 * this.F[0][0] + P11 * this.F[0][1] + this.Q[1][0], 
+                     P10 * this.F[1][0] + P11 * this.F[1][1] + this.Q[1][1]]
+                ];
+            }
+            
+            update(measurement) {
+                if (!this.initialized) {
+                    this.x = measurement;
+                    this.initialized = true;
+                    return measurement;
+                }
+                
+                const S = this.H[0] * this.P[0][0] * this.H[0] + this.R;
+                const K = [
+                    this.P[0][0] * this.H[0] / S,
+                    this.P[1][0] * this.H[0] / S
+                ];
+                
+                const y = measurement - this.x;
+                this.x += K[0] * y;
+                this.v += K[1] * y;
+                
+                const P00 = (1 - K[0]) * this.P[0][0];
+                const P01 = (1 - K[0]) * this.P[0][1];
+                const P10 = -K[1] * this.P[0][0] + this.P[1][0];
+                const P11 = -K[1] * this.P[0][1] + this.P[1][1];
+                
+                this.P = [[P00, P01], [P10, P11]];
+                
+                return this.x;
+            }
+            
+            filter(measurement, dt = 1/30) {
+                this.predict(dt);
+                return this.update(measurement);
+            }
+        }
+        
+        // Pose smoothing with Kalman filters
+        class PoseKalmanFilter {
+            constructor() {
+                this.filters = new Map();
+            }
+            
+            filterPose(pose, dt = 1/30) {
+                const filteredPose = [];
+                
+                for (let i = 0; i < pose.length; i++) {
+                    const landmark = pose[i];
+                    const key = `landmark_${i}`;
+                    
+                    if (!this.filters.has(key)) {
+                        this.filters.set(key, {
+                            x: new KalmanFilter1D(0.01, 5),
+                            y: new KalmanFilter1D(0.01, 5),
+                            z: new KalmanFilter1D(0.01, 5)
+                        });
+                    }
+                    
+                    const filter = this.filters.get(key);
+                    filteredPose.push({
+                        x: filter.x.filter(landmark.x, dt),
+                        y: filter.y.filter(landmark.y, dt),
+                        z: filter.z.filter(landmark.z, dt),
+                        visibility: landmark.visibility
+                    });
+                }
+                
+                return filteredPose;
+            }
+            
+            filterAngle(angle, jointName) {
+                const key = `angle_${jointName}`;
+                
+                if (!this.filters.has(key)) {
+                    this.filters.set(key, new KalmanFilter1D(0.1, 2));
+                }
+                
+                return this.filters.get(key).filter(angle);
+            }
+        }
+        
+        // Optimized Ball Detector
+        class OptimizedBallDetector {
+            constructor() {
+                this.ballSignature = null;
+                this.roi = null;
+                this.isTracking = false;
+                this.lastPositions = [];
+                this.kalmanX = new KalmanFilter1D(0.5, 10);
+                this.kalmanY = new KalmanFilter1D(0.5, 10);
+                this.maxHeight = null;
+                this.trackingConfidence = 0;
+            }
+            
+            detectBall(imageData, pose, phase) {
+                // Only look for ball after ascending from squat
+                if (phase !== 'ASCENDING' && phase !== 'THROWING' && phase !== 'BALL_ASCENDING') {
+                    this.isTracking = false;
+                    this.maxHeight = null;
+                    document.getElementById('ball-status').textContent = 'Waiting...';
+                    document.getElementById('ball-confidence').textContent = '--';
+                    return null;
+                }
+                
+                // Calculate ROI based on hand positions
+                const roi = this.calculateROI(pose);
+                
+                if (!this.isTracking) {
+                    // Initial detection using edge detection
+                    const ball = this.detectBallInROI(imageData, roi);
+                    if (ball) {
+                        this.isTracking = true;
+                        this.ballSignature = this.learnBallSignature(imageData, ball);
+                        this.lastPositions = [ball];
+                        document.getElementById('ball-status').textContent = 'Tracking';
+                        return ball;
+                    }
+                } else {
+                    // Efficient tracking using learned signature
+                    const ball = this.trackBallEfficient(imageData, roi);
+                    if (ball) {
+                        // Apply Kalman filtering for smooth tracking
+                        ball.x = this.kalmanX.filter(ball.x);
+                        ball.y = this.kalmanY.filter(ball.y);
+                        
+                        // Track max height
+                        if (this.maxHeight === null || ball.y < this.maxHeight) {
+                            this.maxHeight = ball.y;
+                        }
+                        
+                        this.lastPositions.push(ball);
+                        if (this.lastPositions.length > 10) {
+                            this.lastPositions.shift();
+                        }
+                        
+                        document.getElementById('ball-confidence').textContent = 
+                            Math.round(this.trackingConfidence * 100) + '%';
+                        
+                        return ball;
+                    } else {
+                        // Lost tracking
+                        this.isTracking = false;
+                        document.getElementById('ball-status').textContent = 'Lost';
+                    }
+                }
+                
+                return null;
+            }
+            
+            calculateROI(pose) {
+                if (!pose || pose.length < 20) return null;
+                
+                // Get hand positions
+                const leftWrist = pose[15];
+                const rightWrist = pose[16];
+                
+                // Center between hands
+                const centerX = (leftWrist.x + rightWrist.x) / 2;
+                const centerY = (leftWrist.y + rightWrist.y) / 2;
+                
+                // Predict ball position based on previous trajectory
+                let roiCenterX = centerX;
+                let roiCenterY = centerY - 0.2; // Above hands
+                
+                if (this.lastPositions.length > 2) {
+                    const lastPos = this.lastPositions[this.lastPositions.length - 1];
+                    const prevPos = this.lastPositions[this.lastPositions.length - 2];
+                    
+                    const vx = (lastPos.x - prevPos.x) / 1280;
+                    const vy = (lastPos.y - prevPos.y) / 720;
+                    
+                    roiCenterX = lastPos.x / 1280 + vx * 2;
+                    roiCenterY = lastPos.y / 720 + vy * 2;
+                }
+                
+                // ROI size adapts based on tracking status
+                const roiSize = this.isTracking ? 150 : 250;
+                
+                return {
+                    x: Math.max(0, roiCenterX * 1280 - roiSize / 2),
+                    y: Math.max(0, roiCenterY * 720 - roiSize / 2),
+                    width: Math.min(roiSize, 1280 - (roiCenterX * 1280 - roiSize / 2)),
+                    height: Math.min(roiSize, 720 - (roiCenterY * 720 - roiSize / 2))
+                };
+            }
+            
+            detectBallInROI(imageData, roi) {
+                if (!roi) return null;
+                
+                // Simple circle detection using edge detection
+                const edges = this.detectEdges(imageData, roi);
+                const circles = this.findCircles(edges, roi);
+                
+                // Return the most likely ball candidate
+                if (circles.length > 0) {
+                    return circles[0];
+                }
+                
+                return null;
+            }
+            
+            detectEdges(imageData, roi) {
+                // Simplified edge detection for performance
+                const data = imageData.data;
+                const width = imageData.width;
+                const edges = new Array(roi.width * roi.height).fill(0);
+                
+                // Sobel edge detection
+                for (let y = 1; y < roi.height - 1; y++) {
+                    for (let x = 1; x < roi.width - 1; x++) {
+                        const globalX = roi.x + x;
+                        const globalY = roi.y + y;
+                        
+                        if (globalX >= width || globalY >= imageData.height) continue;
+                        
+                        const idx = (globalY * width + globalX) * 4;
+                        
+                        // Convert to grayscale
+                        const gray = data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114;
+                        
+                        // Sobel operators
+                        const idx_left = idx - 4;
+                        const idx_right = idx + 4;
+                        const idx_top = idx - width * 4;
+                        const idx_bottom = idx + width * 4;
+                        
+                        const gray_left = data[idx_left] * 0.299 + data[idx_left + 1] * 0.587 + data[idx_left + 2] * 0.114;
+                        const gray_right = data[idx_right] * 0.299 + data[idx_right + 1] * 0.587 + data[idx_right + 2] * 0.114;
+                        const gray_top = data[idx_top] * 0.299 + data[idx_top + 1] * 0.587 + data[idx_top + 2] * 0.114;
+                        const gray_bottom = data[idx_bottom] * 0.299 + data[idx_bottom + 1] * 0.587 + data[idx_bottom + 2] * 0.114;
+                        
+                        const gx = gray_right - gray_left;
+                        const gy = gray_bottom - gray_top;
+                        
+                        const magnitude = Math.sqrt(gx * gx + gy * gy);
+                        edges[y * roi.width + x] = magnitude > 30 ? 255 : 0;
+                    }
+                }
+                
+                return { data: edges, width: roi.width, height: roi.height };
+            }
+            
+            findCircles(edges, roi) {
+                const circles = [];
+                const minRadius = 12;
+                const maxRadius = 35;
+                
+                // Simplified Hough transform
+                for (let r = minRadius; r <= maxRadius; r += 5) {
+                    const accumulator = {};
+                    
+                    for (let y = r; y < edges.height - r; y++) {
+                        for (let x = r; x < edges.width - r; x++) {
+                            if (edges.data[y * edges.width + x] > 0) {
+                                // Vote for possible centers
+                                for (let theta = 0; theta < 360; theta += 45) {
+                                    const a = Math.round(x - r * Math.cos(theta * Math.PI / 180));
+                                    const b = Math.round(y - r * Math.sin(theta * Math.PI / 180));
+                                    const key = `${a},${b}`;
+                                    accumulator[key] = (accumulator[key] || 0) + 1;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Find peaks
+                    for (let key in accumulator) {
+                        if (accumulator[key] > 8) {
+                            const [x, y] = key.split(',').map(Number);
+                            circles.push({ 
+                                x: roi.x + x, 
+                                y: roi.y + y, 
+                                radius: r, 
+                                votes: accumulator[key] 
+                            });
+                        }
+                    }
+                }
+                
+                // Sort by votes and filter by motion
+                circles.sort((a, b) => b.votes - a.votes);
+                return circles.slice(0, 1);
+            }
+            
+            learnBallSignature(imageData, ball) {
+                // Extract ball region colors
+                const signature = {
+                    radius: ball.radius,
+                    color: this.getAverageColor(imageData, ball),
+                    histogram: this.calculateColorHistogram(imageData, ball)
+                };
+                
+                return signature;
+            }
+            
+            getAverageColor(imageData, ball) {
+                const data = imageData.data;
+                let r = 0, g = 0, b = 0, count = 0;
+                
+                for (let dy = -ball.radius; dy <= ball.radius; dy++) {
+                    for (let dx = -ball.radius; dx <= ball.radius; dx++) {
+                        if (dx * dx + dy * dy <= ball.radius * ball.radius) {
+                            const x = Math.round(ball.x + dx);
+                            const y = Math.round(ball.y + dy);
+                            
+                            if (x >= 0 && x < imageData.width && y >= 0 && y < imageData.height) {
+                                const idx = (y * imageData.width + x) * 4;
+                                
+                                r += data[idx];
+                                g += data[idx + 1];
+                                b += data[idx + 2];
+                                count++;
+                            }
+                        }
+                    }
+                }
+                
+                return {
+                    r: Math.round(r / count),
+                    g: Math.round(g / count),
+                    b: Math.round(b / count)
+                };
+            }
+            
+            calculateColorHistogram(imageData, ball) {
+                const histogram = new Array(64).fill(0);
+                const data = imageData.data;
+                let count = 0;
+                
+                for (let dy = -ball.radius; dy <= ball.radius; dy++) {
+                    for (let dx = -ball.radius; dx <= ball.radius; dx++) {
+                        if (dx * dx + dy * dy <= ball.radius * ball.radius) {
+                            const x = Math.round(ball.x + dx);
+                            const y = Math.round(ball.y + dy);
+                            
+                            if (x >= 0 && x < imageData.width && y >= 0 && y < imageData.height) {
+                                const idx = (y * imageData.width + x) * 4;
+                                
+                                // Quantize colors to 4 levels each
+                                const r = Math.floor(data[idx] / 64);
+                                const g = Math.floor(data[idx + 1] / 64);
+                                const b = Math.floor(data[idx + 2] / 64);
+                                
+                                histogram[r * 16 + g * 4 + b]++;
+                                count++;
+                            }
+                        }
+                    }
+                }
+                
+                // Normalize
+                if (count > 0) {
+                    for (let i = 0; i < histogram.length; i++) {
+                        histogram[i] /= count;
+                    }
+                }
+                
+                return histogram;
+            }
+            
+            trackBallEfficient(imageData, roi) {
+                if (!this.ballSignature || !roi) return null;
+                
+                let bestMatch = { score: 0, position: null };
+                
+                // Search in predicted area with adaptive step size
+                const searchStep = this.trackingConfidence > 0.8 ? 8 : 5;
+                
+                for (let y = 0; y < roi.height - this.ballSignature.radius * 2; y += searchStep) {
+                    for (let x = 0; x < roi.width - this.ballSignature.radius * 2; x += searchStep) {
+                        const candidate = {
+                            x: roi.x + x + this.ballSignature.radius,
+                            y: roi.y + y + this.ballSignature.radius,
+                            radius: this.ballSignature.radius
+                        };
+                        
+                        const score = this.matchSignature(imageData, candidate);
+                        
+                        if (score > bestMatch.score && score > 0.6) {
+                            bestMatch = {
+                                score,
+                                position: candidate
+                            };
+                        }
+                    }
+                }
+                
+                this.trackingConfidence = bestMatch.score;
+                return bestMatch.position;
+            }
+            
+            matchSignature(imageData, candidate) {
+                const histogram = this.calculateColorHistogram(imageData, candidate);
+                
+                // Compare histograms using Bhattacharyya coefficient
+                let score = 0;
+                for (let i = 0; i < histogram.length; i++) {
+                    score += Math.sqrt(histogram[i] * this.ballSignature.histogram[i]);
+                }
+                
+                // Color similarity bonus
+                const color = this.getAverageColor(imageData, candidate);
+                const colorDiff = Math.sqrt(
+                    Math.pow(color.r - this.ballSignature.color.r, 2) +
+                    Math.pow(color.g - this.ballSignature.color.g, 2) +
+                    Math.pow(color.b - this.ballSignature.color.b, 2)
+                );
+                
+                const colorScore = 1 - (colorDiff / 441); // Max diff is 441
+                
+                return score * 0.7 + colorScore * 0.3;
+            }
+            
+            getBallHeight(ball, groundLevel, pixelsPerMeter) {
+                if (!ball) return 0;
+                
+                // Convert pixel position to meters
+                const heightInPixels = groundLevel - ball.y;
+                return heightInPixels / pixelsPerMeter;
+            }
+            
+            getMaxHeight(groundLevel, pixelsPerMeter) {
+                if (this.maxHeight === null) return 0;
+                
+                const heightInPixels = groundLevel - this.maxHeight;
+                return heightInPixels / pixelsPerMeter;
+            }
+        }
+        
+        // Wall Ball Analyzer Class with Kalman Filtering
+        class WallBallAnalyzer {
+            constructor() {
+                this.athleteHeight = 0;
+                this.gender = 'male';
+                this.targetHeights = { male: 3.0, female: 2.7 };
+                this.calibrated = false;
+                this.poseFilter = new PoseKalmanFilter();
+                this.pixelsPerMeter = 200; // Will be calibrated
+                this.groundLevel = 720; // Bottom of frame initially
+            }
+            
+            calculateDistance3D(point1, point2) {
+                const dx = point1.x - point2.x;
+                const dy = point1.y - point2.y;
+                const dz = point1.z - point2.z;
+                return Math.sqrt(dx * dx + dy * dy + dz * dz);
+            }
+            
+            calibrateAthleteHeight(pose) {
+                if (!pose || pose.length < 33) return;
+                
+                // Calculate height from ankle to head in normalized coordinates
+                const segments = [
+                    this.calculateDistance3D(pose[27], pose[25]), // ankle to knee
+                    this.calculateDistance3D(pose[25], pose[23]), // knee to hip
+                    this.calculateDistance3D(pose[23], pose[11]), // hip to shoulder
+                    this.calculateDistance3D(pose[11], pose[0])   // shoulder to nose
+                ];
+                
+                const totalHeightNormalized = segments.reduce((sum, seg) => sum + seg, 0);
+                
+                // Convert to pixel height
+                const totalHeightPixels = totalHeightNormalized * 720;
+                
+                // Calibrate pixels per meter based on assumed human height
+                const assumedHeightMeters = 1.7; // Average human height
+                this.pixelsPerMeter = totalHeightPixels / assumedHeightMeters;
+                
+                // Set ground level based on ankle position
+                const leftAnkle = pose[27].y * 720;
+                const rightAnkle = pose[28].y * 720;
+                this.groundLevel = Math.max(leftAnkle, rightAnkle) + 20; // Add small offset
+                
+                // Store athlete height in meters
+                this.athleteHeight = assumedHeightMeters;
+                this.calibrated = true;
+            }
+            
+            calculateThighAngle(pose) {
+                if (!pose || pose.length < 33) return null;
+                
+                // Get hip and knee positions
+                const leftHip = pose[23];
+                const leftKnee = pose[25];
+                const rightHip = pose[24];
+                const rightKnee = pose[26];
+                
+                // Average both sides for stability
+                const avgHipY = (leftHip.y + rightHip.y) / 2;
+                const avgKneeY = (leftKnee.y + rightKnee.y) / 2;
+                const avgHipX = (leftHip.x + rightHip.x) / 2;
+                const avgKneeX = (leftKnee.x + rightKnee.x) / 2;
+                
+                // Calculate angle from horizontal
+                const dx = avgKneeX - avgHipX;
+                const dy = avgKneeY - avgHipY;
+                
+                // Angle from horizontal (0° = parallel to ground)
+                let angle = Math.atan2(Math.abs(dy), Math.abs(dx)) * (180 / Math.PI);
+                
+                // Convert to angle from vertical for easier understanding
+                angle = 90 - angle;
+                
+                // Apply Kalman filtering
+                return this.poseFilter.filterAngle(angle, 'thigh');
+            }
+            
+            isSquatValid(angle) {
+                // Valid if thigh is at or below parallel (90° from vertical)
+                return angle >= 90;
+            }
+            
+            detectSquatPhase(pose, previousPose) {
+                if (!pose || !previousPose) return 'UNKNOWN';
+                
+                const currentHipY = (pose[23].y + pose[24].y) / 2;
+                const previousHipY = (previousPose[23].y + previousPose[24].y) / 2;
+                
+                const movement = currentHipY - previousHipY;
+                
+                if (Math.abs(movement) < 0.002) return 'STATIC';
+                return movement > 0 ? 'DESCENDING' : 'ASCENDING';
+            }
+            
+            getTargetHeight() {
+                return this.targetHeights[this.gender];
+            }
+        }
+        
+        // Rep Tracker Class with Ball Detection
+        class RepTracker {
+            constructor(analyzer) {
+                this.analyzer = analyzer;
+                this.phase = 'READY';
+                this.stats = {
+                    totalReps: 0,
+                    validReps: 0,
+                    invalidReps: 0
+                };
+                this.currentRep = {
+                    startTime: null,
+                    validSquat: false,
+                    validThrow: false,
+                    maxDepth: 0,
+                    maxBallHeight: 0,
+                    errors: []
+                };
+                this.previousPose = null;
+                this.depthHistory = [];
+                this.ballDetector = new OptimizedBallDetector();
+                this.ballHeightHistory = [];
+                this.throwDetected = false;
+            }
+            
+            update(pose, imageData) {
+                if (!pose) return;
+                
+                // Apply Kalman filtering to pose
+                const filteredPose = this.analyzer.poseFilter.filterPose(pose);
+                
+                const angle = this.analyzer.calculateThighAngle(filteredPose);
+                const movement = this.analyzer.detectSquatPhase(filteredPose, this.previousPose);
+                
+                // Detect ball
+                const ball = this.ballDetector.detectBall(imageData, filteredPose, this.phase);
+                
+                // Update ball height display
+                if (ball) {
+                    const ballHeight = this.ballDetector.getBallHeight(
+                        ball, 
+                        this.analyzer.groundLevel, 
+                        this.analyzer.pixelsPerMeter
+                    );
+                    document.getElementById('ball-height').textContent = ballHeight.toFixed(2) + 'm';
+                }
+                
+                // Update depth history for smoothing
+                if (angle !== null) {
+                    this.depthHistory.push(angle);
+                    if (this.depthHistory.length > 5) {
+                        this.depthHistory.shift();
+                    }
+                }
+                
+                // State machine for rep tracking
+                switch (this.phase) {
+                    case 'READY':
+                        if (movement === 'DESCENDING' && angle < 45) {
+                            this.phase = 'DESCENDING';
+                            this.currentRep = {
+                                startTime: Date.now(),
+                                validSquat: false,
+                                validThrow: false,
+                                maxDepth: angle,
+                                maxBallHeight: 0,
+                                errors: []
+                            };
+                            this.throwDetected = false;
+                        }
+                        break;
+                        
+                    case 'DESCENDING':
+                        if (angle !== null && angle > this.currentRep.maxDepth) {
+                            this.currentRep.maxDepth = angle;
+                        }
+                        
+                        if (this.analyzer.isSquatValid(angle)) {
+                            this.currentRep.validSquat = true;
+                        }
+                        
+                        if (movement === 'ASCENDING') {
+                            this.phase = 'ASCENDING';
+                            
+                            if (!this.currentRep.validSquat) {
+                                this.currentRep.errors.push('INSUFFICIENT_DEPTH');
+                            }
+                        }
+                        break;
+                        
+                    case 'ASCENDING':
+                        if (ball && !this.throwDetected) {
+                            this.phase = 'THROWING';
+                            this.throwDetected = true;
+                        } else if (angle < 30 && !this.throwDetected) {
+                            // Standing without throw
+                            this.currentRep.errors.push('NO_THROW_DETECTED');
+                            this.completeRep();
+                            this.phase = 'READY';
+                        }
+                        break;
+                        
+                    case 'THROWING':
+                        if (ball) {
+                            this.phase = 'BALL_ASCENDING';
+                        }
+                        break;
+                        
+                    case 'BALL_ASCENDING':
+                        if (ball) {
+                            const ballHeight = this.ballDetector.getBallHeight(
+                                ball, 
+                                this.analyzer.groundLevel, 
+                                this.analyzer.pixelsPerMeter
+                            );
+                            
+                            if (ballHeight > this.currentRep.maxBallHeight) {
+                                this.currentRep.maxBallHeight = ballHeight;
+                            }
+                        } else {
+                            // Ball tracking lost - check if we got the height
+                            const maxHeight = this.ballDetector.getMaxHeight(
+                                this.analyzer.groundLevel,
+                                this.analyzer.pixelsPerMeter
+                            );
+                            
+                            if (maxHeight > 0) {
+                                this.currentRep.maxBallHeight = maxHeight;
+                                
+                                // Validate throw height
+                                const targetHeight = this.analyzer.getTargetHeight();
+                                if (this.currentRep.maxBallHeight >= targetHeight) {
+                                    this.currentRep.validThrow = true;
+                                } else {
+                                    this.currentRep.errors.push('INSUFFICIENT_HEIGHT');
+                                }
+                            }
+                            
+                            this.completeRep();
+                            this.phase = 'READY';
+                        }
+                        break;
+                }
+                
+                this.previousPose = filteredPose;
+                
+                return {
+                    phase: this.phase,
+                    currentAngle: angle,
+                    feedback: this.generateFeedback(angle)
+                };
+            }
+            
+            completeRep() {
+                this.stats.totalReps++;
+                
+                // Both squat and throw must be valid
+                if (this.currentRep.validSquat && this.currentRep.validThrow) {
+                    this.stats.validReps++;
+                    this.showFeedback('GOOD REP!', 'success');
+                } else {
+                    this.stats.invalidReps++;
+                    
+                    // Show specific error
+                    let errorMsg = 'INVALID: ';
+                    if (this.currentRep.errors.includes('INSUFFICIENT_DEPTH')) {
+                        errorMsg += 'Squat too shallow';
+                    }
+                    if (this.currentRep.errors.includes('INSUFFICIENT_HEIGHT')) {
+                        if (errorMsg !== 'INVALID: ') errorMsg += ' + ';
+                        errorMsg += `Ball too low (${this.currentRep.maxBallHeight.toFixed(1)}m)`;
+                    }
+                    if (this.currentRep.errors.includes('NO_THROW_DETECTED')) {
+                        errorMsg = 'No throw detected';
+                    }
+                    
+                    this.showFeedback(errorMsg, 'error');
+                    this.showErrors(this.currentRep.errors);
+                }
+                
+                this.updateDisplay();
+            }
+            
+            generateFeedback(angle) {
+                if (this.phase === 'DESCENDING' && angle !== null) {
+                    if (angle < 70) {
+                        return { message: 'Keep going...', type: 'info' };
+                    } else if (angle < 90) {
+                        return { message: 'Almost there!', type: 'warning' };
+                    } else {
+                        return { message: 'Good depth!', type: 'success' };
+                    }
+                }
+                return null;
+            }
+            
+            showFeedback(message, type) {
+                const feedbackEl = document.getElementById('feedback');
+                feedbackEl.textContent = message;
+                feedbackEl.className = `feedback ${type}`;
+                feedbackEl.style.display = 'block';
+                
+                setTimeout(() => {
+                    feedbackEl.style.display = 'none';
+                }, 3000);
+            }
+            
+            showErrors(errors) {
+                const errorsDiv = document.getElementById('rep-errors');
+                const errorList = document.getElementById('error-list');
+                
+                if (errors.length > 0) {
+                    errorList.innerHTML = errors.map(error => {
+                        switch(error) {
+                            case 'INSUFFICIENT_DEPTH':
+                                return `• Squat depth: ${this.currentRep.maxDepth.toFixed(0)}° (need 90°+)`;
+                            case 'INSUFFICIENT_HEIGHT':
+                                return `• Ball height: ${this.currentRep.maxBallHeight.toFixed(2)}m (need ${this.analyzer.getTargetHeight()}m)`;
+                            case 'NO_THROW_DETECTED':
+                                return '• No ball throw detected';
+                            default:
+                                return `• ${error}`;
+                        }
+                    }).join('<br>');
+                    
+                    errorsDiv.style.display = 'block';
+                    
+                    setTimeout(() => {
+                        errorsDiv.style.display = 'none';
+                    }, 5000);
+                }
+            }
+            
+            updateDisplay() {
+                document.getElementById('total-reps').textContent = this.stats.totalReps;
+                document.getElementById('valid-reps').textContent = this.stats.validReps;
+                document.getElementById('invalid-reps').textContent = this.stats.invalidReps;
+            }
+        }
+        
+        // Performance monitoring
+        class PerformanceMonitor {
+            constructor() {
+                this.frameCount = 0;
+                this.lastTime = performance.now();
+                this.fps = 0;
+                this.processingTimes = [];
+            }
+            
+            startFrame() {
+                this.frameStart = performance.now();
+            }
+            
+            endFrame() {
+                const processingTime = performance.now() - this.frameStart;
+                this.processingTimes.push(processingTime);
+                
+                if (this.processingTimes.length > 30) {
+                    this.processingTimes.shift();
+                }
+                
+                this.frameCount++;
+                
+                const currentTime = performance.now();
+                const elapsed = currentTime - this.lastTime;
+                
+                if (elapsed >= 1000) {
+                    this.fps = Math.round((this.frameCount * 1000) / elapsed);
+                    this.frameCount = 0;
+                    this.lastTime = currentTime;
+                    
+                    const avgProcessing = this.processingTimes.reduce((a, b) => a + b, 0) / this.processingTimes.length;
+                    
+                    document.getElementById('fps').textContent = this.fps;
+                    document.getElementById('processing-time').textContent = avgProcessing.toFixed(1) + 'ms';
+                }
+            }
+        }
+        
+        // Main Application
+        const videoElement = document.getElementById('input-video');
+        const canvasElement = document.getElementById('output-canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        
+        const analyzer = new WallBallAnalyzer();
+        const tracker = new RepTracker(analyzer);
+        const performanceMonitor = new PerformanceMonitor();
+        
+        // Gender selection
+        document.getElementById('gender-select').addEventListener('change', (e) => {
+            analyzer.gender = e.target.value;
+        });
+        
+        // MediaPipe Pose setup
+        const pose = new Pose({
+            locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+            }
+        });
+        
+        pose.setOptions({
+            modelComplexity: 2,
+            smoothLandmarks: true,
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.7
+        });
+        
+        pose.onResults((results) => {
+            performanceMonitor.startFrame();
+            
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            // Draw video
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            
+            // Get image data for ball detection
+            const imageData = canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height);
+            
+            if (results.poseLandmarks) {
+                // Calibrate athlete height
+                if (!analyzer.calibrated) {
+                    analyzer.calibrateAthleteHeight(results.poseLandmarks);
+                }
+                
+                // Update rep tracking with pose and image data
+                const update = tracker.update(results.poseLandmarks, imageData);
+                
+                // Draw pose
+                drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {
+                    color: '#00FF00',
+                    lineWidth: 4
+                });
+                drawLandmarks(canvasCtx, results.poseLandmarks, {
+                    color: '#FF0000',
+                    lineWidth: 2
+                });
+                
+                // Draw ball if detected
+                const ball = tracker.ballDetector.lastPositions[tracker.ballDetector.lastPositions.length - 1];
+                if (ball) {
+                    canvasCtx.strokeStyle = '#FFD700';
+                    canvasCtx.lineWidth = 3;
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(ball.x, ball.y, ball.radius, 0, 2 * Math.PI);
+                    canvasCtx.stroke();
+                }
+                
+                // Draw target height line
+                if (analyzer.calibrated) {
+                    const targetHeight = analyzer.getTargetHeight();
+                    const targetY = analyzer.groundLevel - (targetHeight * analyzer.pixelsPerMeter);
+                    
+                    canvasCtx.strokeStyle = '#3b82f6';
+                    canvasCtx.lineWidth = 2;
+                    canvasCtx.setLineDash([10, 5]);
+                    canvasCtx.beginPath();
+                    canvasCtx.moveTo(0, targetY);
+                    canvasCtx.lineTo(canvasElement.width, targetY);
+                    canvasCtx.stroke();
+                    canvasCtx.setLineDash([]);
+                    
+                    // Label
+                    canvasCtx.fillStyle = '#3b82f6';
+                    canvasCtx.font = '16px Arial';
+                    canvasCtx.fillText(`Target: ${targetHeight}m`, 10, targetY - 5);
+                }
+                
+                // Draw squat depth indicator
+                if (update.currentAngle !== null) {
+                    const depthText = `${Math.round(update.currentAngle)}°`;
+                    document.getElementById('current-depth').textContent = depthText;
+                    
+                    // Visual depth indicator
+                    const depthIndicator = document.getElementById('depth-indicator');
+                    if (tracker.phase === 'DESCENDING') {
+                        depthIndicator.textContent = depthText;
+                        depthIndicator.className = 'depth-indicator show';
+                        depthIndicator.style.color = update.currentAngle >= 90 ? '#4ade80' : '#f87171';
+                    } else {
+                        depthIndicator.className = 'depth-indicator';
+                    }
+                }
+                
+                // Update phase display
+                document.getElementById('phase').textContent = tracker.phase;
+            }
+            
+            canvasCtx.restore();
+            performanceMonitor.endFrame();
+        });
+        
+        // Camera setup
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await pose.send({ image: videoElement });
+            },
+            width: 1280,
+            height: 720
+        });
+        
+        camera.start();
+        
+        // Set canvas size
+        canvasElement.width = 1280;
+        canvasElement.height = 720;
+    </script>
+</body>
+</html>
