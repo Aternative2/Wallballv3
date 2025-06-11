@@ -21,11 +21,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     sessions[session_id] = {
         "analyzer": analyzer,
         "tracker": tracker,
-        "stats": {
-            "total_reps": 0,
-            "valid_reps": 0,
-            "invalid_reps": 0
-        }
+        "stats": tracker.stats  # Use the new stats structure
     }
     
     try:
@@ -41,21 +37,15 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 # Update tracker
                 result = tracker.update(pose)
                 
-                # Update stats if rep completed
-                if result["rep_completed"]:
-                    sessions[session_id]["stats"]["total_reps"] += 1
-                    if result["rep_data"]["valid"]:
-                        sessions[session_id]["stats"]["valid_reps"] += 1
-                    else:
-                        sessions[session_id]["stats"]["invalid_reps"] += 1
+                # No need to update stats here, tracker.stats is always up to date
                 
                 # Send response
                 await websocket.send_json({
                     "type": "analysis",
                     "data": {
                         "phase": result["phase"],
-                        "angle": result["angle"],
-                        "stats": sessions[session_id]["stats"]
+                        "angle": result.get("angle", result.get("knee_angle")),
+                        "stats": tracker.stats
                     }
                 })
                 

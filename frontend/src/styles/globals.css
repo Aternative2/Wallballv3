@@ -2,42 +2,84 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
+* {
+  box-sizing: border-box;
   margin: 0;
+  padding: 0;
+}
+
+body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: #0f0f0f;
   color: white;
+  overflow: hidden;
 }
 
 .hidden {
-  display: none;
+  display: none !important;
 }
 
 .camera-container {
   position: relative;
   width: 100vw;
   height: 100vh;
+  background: #000;
+}
+
+.video-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: #000;
+}
+
+canvas {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  transform: scaleX(-1);
 }
 
 .stats-panel {
-  position: absolute;
+  position: fixed;
   top: 20px;
   left: 20px;
-  background: rgba(0, 0, 0, 0.8);
-  padding: 20px;
-  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.9);
+  padding: 24px;
+  border-radius: 12px;
   backdrop-filter: blur(10px);
-  min-width: 250px;
+  min-width: 280px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 10;
+}
+
+.stats-panel h2 {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 20px;
+  text-align: center;
+  color: #fff;
 }
 
 .stat-item {
   display: flex;
   justify-content: space-between;
-  margin: 10px 0;
+  align-items: center;
+  margin: 12px 0;
   font-size: 18px;
+}
+
+.stat-item span:first-child {
+  color: #888;
+}
+
+.stat-item span:last-child {
+  font-weight: bold;
+  font-size: 24px;
 }
 
 .valid {
@@ -52,21 +94,39 @@ body {
   margin-top: 20px;
   padding-top: 20px;
   border-top: 1px solid #333;
-  font-size: 20px;
-  font-weight: bold;
+  font-size: 18px;
+  text-align: center;
+  color: #fbbf24;
 }
 
-.loading, .error {
-  position: absolute;
+.loading {
+  position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   font-size: 24px;
   text-align: center;
+  z-index: 20;
 }
 
-canvas {
-  max-width: 100%;
-  max-height: 100%;
-  transform: scaleX(-1);
+.error {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 20px;
+  text-align: center;
+  background: rgba(239, 68, 68, 0.9);
+  padding: 20px 40px;
+  border-radius: 8px;
+  z-index: 20;
+}
+
+/* Ensure video element is truly hidden */
+video {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
 }

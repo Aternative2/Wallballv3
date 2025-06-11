@@ -1,16 +1,16 @@
 import numpy as np
-from typing import Optional
+from typing import Optional, Tuple, List
 from ..models import Pose, Point3D
-from .kalman import KalmanFilter
 
 class WallBallAnalyzer:
     """Core analysis logic for Wall Ball movements"""
     def __init__(self):
-        self.angle_filter = KalmanFilter(0.1, 2)
         self.calibrated = False
         self.athlete_height = 1.7  # meters
         self.pixels_per_meter = 200
         self.ground_level = 720
+        self.min_squat_depth = 45  # degrees
+        self.ankle_ground_threshold = 0.05  # meters
         
     def calculate_joint_angle(self, p1: Point3D, p2: Point3D, p3: Point3D) -> float:
         """Calculate angle between three points"""
@@ -22,35 +22,27 @@ class WallBallAnalyzer:
         
         return np.degrees(angle)
     
-    def calculate_thigh_angle(self, pose: Pose) -> Optional[float]:
-        """Calculate thigh angle from horizontal"""
+    def calculate_knee_angle(self, pose: Pose) -> Optional[float]:
+        """Calculate knee angle between hip, knee, and ankle"""
         if len(pose.landmarks) < 33:
             return None
         
-        # Average left and right sides
+        # Get left side points
         left_hip = pose.landmarks[23]
         left_knee = pose.landmarks[25]
+        left_ankle = pose.landmarks[27]
+        
+        # Get right side points
         right_hip = pose.landmarks[24]
         right_knee = pose.landmarks[26]
+        right_ankle = pose.landmarks[28]
         
-        avg_hip_y = (left_hip.y + right_hip.y) / 2
-        avg_knee_y = (left_knee.y + right_knee.y) / 2
-        avg_hip_x = (left_hip.x + right_hip.x) / 2
-        avg_knee_x = (left_knee.x + right_knee.x) / 2
+        # Calculate angles for both sides
+        left_angle = self.calculate_joint_angle(left_hip, left_knee, left_ankle)
+        right_angle = self.calculate_joint_angle(right_hip, right_knee, right_ankle)
         
-        # Calculate angle from horizontal
-        dx = avg_knee_x - avg_hip_x
-        dy = avg_knee_y - avg_hip_y
-        
-        angle = np.arctan2(abs(dy), abs(dx)) * 180 / np.pi
-        angle_from_vertical = 90 - angle
-        
-        # Apply Kalman filtering
-        return self.angle_filter.filter(angle_from_vertical)
-    
-    def is_squat_valid(self, angle: float) -> bool:
-        """Check if squat depth is sufficient"""
-        return angle >= 90
+        # Return average of both sides
+        return (left_angle + right_angle) / 2 if left_angle and right_angle else None
     
     def detect_movement_phase(self, current_pose: Pose, previous_pose: Optional[Pose]) -> str:
         """Detect movement phase based on hip position"""

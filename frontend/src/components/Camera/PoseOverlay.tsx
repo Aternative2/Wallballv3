@@ -3,17 +3,27 @@ import React, { useEffect } from 'react';
 interface PoseOverlayProps {
   pose: any;
   canvasRef: React.RefObject<HTMLCanvasElement>;
+  isVideoFile?: boolean;
 }
 
-export default function PoseOverlay({ pose, canvasRef }: PoseOverlayProps) {
+export default function PoseOverlay({ pose, canvasRef, isVideoFile = false }: PoseOverlayProps) {
   useEffect(() => {
     if (!canvasRef.current || !pose) return;
 
     const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
 
-    // Clear canvas
-    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    const width = canvasRef.current.width;
+    const height = canvasRef.current.height;
+
+    // Clear previous overlay
+    ctx.save();
+    
+    // Apply mirroring for camera (not for video files)
+    if (!isVideoFile) {
+      ctx.translate(width, 0);
+      ctx.scale(-1, 1);
+    }
 
     // Draw skeleton connections
     const connections = [
@@ -28,8 +38,8 @@ export default function PoseOverlay({ pose, canvasRef }: PoseOverlayProps) {
     connections.forEach(([start, end]) => {
       if (pose[start] && pose[end]) {
         ctx.beginPath();
-        ctx.moveTo(pose[start].x * 1280, pose[start].y * 720);
-        ctx.lineTo(pose[end].x * 1280, pose[end].y * 720);
+        ctx.moveTo(pose[start].x * width, pose[start].y * height);
+        ctx.lineTo(pose[end].x * width, pose[end].y * height);
         ctx.stroke();
       }
     });
@@ -37,13 +47,15 @@ export default function PoseOverlay({ pose, canvasRef }: PoseOverlayProps) {
     // Draw joints
     ctx.fillStyle = '#ff0000';
     pose.forEach((landmark: any) => {
-      if (landmark) {
+      if (landmark && landmark.visibility > 0.5) {
         ctx.beginPath();
-        ctx.arc(landmark.x * 1280, landmark.y * 720, 5, 0, 2 * Math.PI);
+        ctx.arc(landmark.x * width, landmark.y * height, 5, 0, 2 * Math.PI);
         ctx.fill();
       }
     });
-  }, [pose, canvasRef]);
+
+    ctx.restore();
+  }, [pose, canvasRef, isVideoFile]);
 
   return null;
 }
