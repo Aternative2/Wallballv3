@@ -12,7 +12,7 @@ export default function DisplayToggle({ showPose, onToggle }: DisplayToggleProps
       style={{
         position: 'fixed',
         top: '20px',
-        right: '240px',
+        right: '20px',
         background: 'rgba(0, 0, 0, 0.9)',
         padding: '12px 20px',
         borderRadius: '12px',

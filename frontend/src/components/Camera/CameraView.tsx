@@ -8,11 +8,12 @@ import DebugOverlay from './DebugOverlay';
 import VideoUpload from './VideoUpload';
 import VideoControls from './VideoControls';
 import DisplayToggle from './DisplayToggle';
+import { ProModeStats, ProModeAnalysis } from '../../types';
 
 export default function CameraView() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [sessionId] = useState(`session_${Date.now()}`);
-  const [stats, setStats] = useState({
+  const [stats, setStats] = useState<ProModeStats>({
     total_reps: 0,
     valid_squats: 0,
     invalid_squats: 0,
@@ -22,6 +23,18 @@ export default function CameraView() {
   });
   const [currentDepth, setCurrentDepth] = useState<number | null>(null);
   const [phase, setPhase] = useState('READY');
+  const [state, setState] = useState<string>('READY');
+  const [feedback, setFeedback] = useState<string[]>([]);
+  const [confidence, setConfidence] = useState<number | null>(null);
+  const [ballDetected, setBallDetected] = useState<boolean | null>(null);
+  const [ballHeight, setBallHeight] = useState<number | null>(null);
+  const [kneeAngle, setKneeAngle] = useState<number | null>(null);
+  const [hipAngle, setHipAngle] = useState<number | null>(null);
+  const [ankleAngle, setAnkleAngle] = useState<number | null>(null);
+  const [side, setSide] = useState<'left' | 'right' | null>(null);
+  const [repCount, setRepCount] = useState<number | null>(null);
+  const [repValid, setRepValid] = useState<boolean | null>(null);
+  const [repErrors, setRepErrors] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(true);
   const [isVideoFile, setIsVideoFile] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -44,7 +57,7 @@ export default function CameraView() {
   } = useMediaPipe();
   
   const { isConnected, sendMessage, lastMessage } = useWebSocket(
-    `ws://localhost:8000/ws/session/${sessionId}`
+    `ws://127.0.0.1:8000/ws/session/${sessionId}`
   );
 
   // Reset stats when switching cameras
@@ -59,6 +72,18 @@ export default function CameraView() {
     });
     setCurrentDepth(null);
     setPhase('READY');
+    setState('READY');
+    setFeedback([]);
+    setConfidence(null);
+    setBallDetected(null);
+    setBallHeight(null);
+    setKneeAngle(null);
+    setHipAngle(null);
+    setAnkleAngle(null);
+    setSide(null);
+    setRepCount(null);
+    setRepValid(null);
+    setRepErrors([]);
   };
 
   // Monitor isVideoFile changes
@@ -146,7 +171,7 @@ export default function CameraView() {
 
   // Send pose data to backend (throttled)
   useEffect(() => {
-    if (pose && isConnected && showPose) {
+    if (pose && isConnected) {
       sendMessage({
         type: 'pose',
         data: {
@@ -155,16 +180,34 @@ export default function CameraView() {
         }
       });
     }
-  }, [pose, isConnected, sendMessage, showPose]);
+  }, [pose, isConnected, sendMessage]);
 
   // Handle backend responses
   useEffect(() => {
     if (lastMessage?.type === 'analysis') {
-      const { phase: newPhase, angle, stats: newStats } = lastMessage.data;
-      setPhase(newPhase);
-      setCurrentDepth(angle ? Math.round(angle) : null);
-      if (newStats) {
-        setStats(newStats);
+      const data: ProModeAnalysis = lastMessage.data;
+      
+      // Update basic fields
+      setPhase(data.phase || 'READY');
+      setCurrentDepth(data.angle ? Math.round(data.angle) : null);
+      
+      // Update Pro mode specific fields
+      if (data.state) setState(data.state);
+      if (data.feedback) setFeedback(data.feedback);
+      if (data.confidence !== undefined) setConfidence(data.confidence);
+      if (data.ball_detected !== undefined) setBallDetected(data.ball_detected);
+      if (data.ball_height !== undefined) setBallHeight(data.ball_height);
+      if (data.knee_angle !== undefined) setKneeAngle(data.knee_angle);
+      if (data.hip_angle !== undefined) setHipAngle(data.hip_angle);
+      if (data.ankle_angle !== undefined) setAnkleAngle(data.ankle_angle);
+      if (data.side) setSide(data.side);
+      if (data.rep_count !== undefined) setRepCount(data.rep_count);
+      if (data.rep_valid !== undefined) setRepValid(data.rep_valid);
+      if (data.rep_errors) setRepErrors(data.rep_errors);
+      
+      // Update stats if provided
+      if (data.stats) {
+        setStats(data.stats);
       }
     }
   }, [lastMessage]);
@@ -269,6 +312,19 @@ export default function CameraView() {
         currentDepth={currentDepth} 
         phase={phase}
         isConnected={isConnected}
+        state={state}
+        feedback={feedback}
+        confidence={confidence}
+        ballDetected={ballDetected}
+        ballHeight={ballHeight}
+        kneeAngle={kneeAngle}
+        hipAngle={hipAngle}
+        ankleAngle={ankleAngle}
+        side={side}
+        repCount={repCount}
+        repValid={repValid}
+        repErrors={repErrors}
+        showPose={showPose}
       />
       
       <CameraSelector

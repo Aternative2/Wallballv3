@@ -7,15 +7,16 @@ export const useWebSocket = (url: string) => {
 
   useEffect(() => {
     try {
+      console.log('Attempting to connect to WebSocket:', url);
       ws.current = new WebSocket(url);
 
       ws.current.onopen = () => {
-        console.log('WebSocket connected');
+        console.log('WebSocket connected successfully to:', url);
         setIsConnected(true);
       };
 
-      ws.current.onclose = () => {
-        console.log('WebSocket disconnected');
+      ws.current.onclose = (event) => {
+        console.log('WebSocket disconnected. Code:', event.code, 'Reason:', event.reason);
         setIsConnected(false);
       };
 
@@ -26,6 +27,7 @@ export const useWebSocket = (url: string) => {
       ws.current.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          console.log('Received WebSocket message:', data);
           setLastMessage(data);
         } catch (err) {
           console.error('Failed to parse message:', err);

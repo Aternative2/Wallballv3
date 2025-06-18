@@ -8,6 +8,13 @@ class Point3D(BaseModel):
     z: float
     visibility: Optional[float] = 1.0
 
+class BallPosition(BaseModel):
+    x: float
+    y: float
+    diameter: float
+    timestamp: float
+
 class Pose(BaseModel):
     landmarks: List[Point3D]
     timestamp: float
+    ball_position: Optional[BallPosition] = None
